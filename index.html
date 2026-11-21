@@ -71,6 +71,18 @@ header.top b br{display:none}
  header.top a:hover{border-left-color:var(--accent);background:var(--chip)}
  body>.wrap{margin-left:232px;max-width:1040px}footer{margin-left:232px}
 }
+
+.nvbar{display:flex;flex-wrap:wrap;gap:8px 10px;align-items:center;margin:0 0 8px}
+.nvbar button.sq{width:32px;padding:5px 0;text-align:center;font-weight:600}
+.nvbar .chipI{display:inline-flex;align-items:center;gap:6px;font-size:13px}.nvbar .chipI i{width:10px;height:10px;border-radius:50%;display:inline-block}.nvbar .chipI.off{opacity:.45;text-decoration:line-through}
+.nvspread{font-size:13px;color:var(--ink2);display:inline-flex;gap:6px;align-items:center}
+.nvhint{font:12px "IBM Plex Mono",monospace;color:var(--mut)}
+canvas:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.nvpanel{display:grid;grid-template-columns:minmax(220px,1fr) 2fr;gap:16px;border-top:1px solid var(--line);margin-top:12px;padding-top:12px}
+@media(max-width:760px){.nvpanel{grid-template-columns:1fr}}
+.nvlist{display:flex;flex-wrap:wrap;gap:6px;align-content:flex-start;max-height:150px;overflow:auto}
+.nvlist button{font-size:12.5px;padding:3px 9px;border-left:4px solid var(--c)}.nvlist button b{color:var(--mut);font-weight:500;margin-left:4px}
+#tip b{font-weight:600}
 </style></head><body>
 <div id="tip"></div>
 <header class="top"><div class="wrap"><b>Group 30<br>Research<br>Networks</b>
@@ -84,8 +96,10 @@ header.top b br{display:none}
 <div class="card" style="margin-top:22px">
  <div class="ctl"><button id="play">▶ Play</button><input id="yr" type="range" min="2016" max="2026" value="2026" style="flex:1;min-width:160px"><b id="yrL" style="font-size:22px">2026</b></div>
  <div class="legend" id="heroLeg"></div>
- <canvas id="heroC" height="520"></canvas>
+ <div class="nvbar" id="heroTools"></div>
+ <canvas id="heroC" height="620"></canvas>
  <p class="cap" id="heroCap" style="margin:8px 0 0"></p>
+ <div id="heroPanel"></div>
 </div></div>
 
 <section class="blk" id="found" style="border-top:0;margin-top:0;padding-top:8px">
@@ -118,7 +132,7 @@ header.top b br{display:none}
 <div class="card">
  <div class="ctl"><span>Colour by</span><button id="cInst" class="on">Institute</button><button id="cComm">Community</button>
  <label><input type="checkbox" id="xOnly"> highlight cross-institute pairs</label><input type="search" id="srch" placeholder="Find a faculty member…"></div>
- <div class="legend" id="netLeg"></div><canvas id="netC" height="640"></canvas><p class="cap" id="netInfo" style="margin:8px 0 0">Hover a node.</p></div>
+ <div class="legend" id="netLeg"></div><div class="nvbar" id="netTools"></div><canvas id="netC" height="680"></canvas><div id="netPanel"></div></div>
 <div class="grid2">
  <div class="card"><h3>Who collaborates with whom</h3><p class="cap">Faculty–faculty pairs by institute combination.</p><div id="chPairs"></div></div>
  <div class="card"><h3>Louvain communities</h3><p class="cap" id="commCap"></p><div id="chComm"></div></div>
@@ -153,7 +167,7 @@ header.top b br{display:none}
 </div>
 <div class="card"><h3>Try it: seed an idea</h3><p class="cap">Click any faculty member to seed a cascade (T below), then step or play. Hubs ignite the network; peripheral seeds usually fizzle.</p>
  <div class="ctl"><span>Transmission T <b id="tL">0.20</b></span><input id="tR" type="range" min="0.05" max="0.6" step="0.01" value="0.2"><button id="sStep">Step</button><button id="sPlay">▶ Play</button><button id="sReset">Reset</button><button id="sHub">Seed top hub</button></div>
- <div class="stat" id="sStat"></div><canvas id="simC" height="520"></canvas></div>
+ <div class="stat" id="sStat"></div><div class="nvbar" id="simTools"></div><canvas id="simC" height="560"></canvas><p class="cap" style="margin:8px 0 0">Click any dot to start the cascade there. Zoom in to see who gets reached in which order.</p></div>
 <div class="grid2">
  <div class="card"><h3>Seed matters: hub vs random vs periphery</h3><p class="cap">Mean cumulative reach per time step at T = 0.20 (80–150 runs).</p><div id="chSeed"></div></div>
  <div class="card"><h3>Cascades stay in-house</h3><p class="cap">Share of reached faculty from the seed's own institute at T = 0.20, with that institute's share of network nodes.</p><div id="chHome"></div></div>
@@ -333,42 +347,119 @@ const hex2rgba=(hex,a)=>{if(hex.startsWith('rgb'))return hex;const n=parseInt(he
 const commColors=['#2a78d6','#eb6834','#1baf7a','#6250d6','#e87ba4','#eda100','#008300','#e34948','#17a2b8','#8c564b','#7f7f7f','#bcbd22'];
 const rad=n=>2.2+Math.sqrt(n.deg)*0.9;
 
+/* ---------- interactive network engine (zoom/pan, spread, focus, pin, labels) ---------- */
+function NetView(c,o){
+ o=o||{};const N=NN,E=EE,n=N.length;
+ const adj=N.map(()=>[]);E.forEach(e=>{adj[e.s].push({j:e.t,w:e.w,x:e.x,y:e.y});adj[e.t].push({j:e.s,w:e.w,x:e.x,y:e.y})});adj.forEach(a=>a.sort((p,q)=>q.w-p.w));
+ const order=N.map((_,i)=>i).sort((a,b)=>N[b].deg-N[a].deg);
+ const cen={};let gx=0,gy=0;N.forEach(m=>{const q=cen[m.comm]||(cen[m.comm]={x:0,y:0,n:0});q.x+=m.x;q.y+=m.py;q.n++;gx+=m.x;gy+=m.py});Object.values(cen).forEach(q=>{q.x/=q.n;q.y/=q.n});gx/=n;gy/=n;
+ let spread=o.spread||1.35,w=0,h=+c.getAttribute('height'),ctx,dpr=1;
+ let view={k:1,tx:0,ty:0},tv={k:1,tx:0,ty:0};
+ const alpha=new Float32Array(n).fill(1),ta=new Float32Array(n).fill(1),rsc=new Float32Array(n),tr=new Float32Array(n);
+ let hov=-1,pinned=-1,q='',instOn=Object.fromEntries(INST.map(k=>[k,true])),raf=0,drag=null,mouse=[0,0];
+ const vis=i=>instOn[N[i].inst]&&(o.visible?o.visible(N[i],i):true);
+ const evis=e=>vis(e.s)&&vis(e.t)&&(o.edgeVisible?o.edgeVisible(e):true);
+ const ux=m=>{const q2=cen[m.comm],s=spread,sx=1+(s-1)*.6;return [gx+(q2.x-gx)*s+(m.x-q2.x)*sx,gy+(q2.y-gy)*s+(m.py-q2.y)*sx]};
+ let base=[];const rebase=()=>{base=N.map(m=>{const u=ux(m);return [26+u[0]*(w-52),18+u[1]*(h-36)]})};
+ const rad=m=>3+Math.sqrt(m.deg)*1.25;
+ const S=i=>{const b=base[i];return [b[0]*view.k+view.tx,b[1]*view.k+view.ty]};
+ const RR=i=>rad(N[i])*Math.max(rsc[i],0)*Math.pow(view.k,.5);
+ const resize=()=>{dpr=Math.min(devicePixelRatio||1,2);w=c.clientWidth;c.width=w*dpr;c.height=h*dpr;ctx=c.getContext('2d');ctx.setTransform(dpr,0,0,dpr,0,0);rebase()};
+ const fit=(anim=true)=>{let a=1e9,b=1e9,A=-1e9,B=-1e9,cnt=0;for(let i=0;i<n;i++){if(!vis(i))continue;cnt++;const p=base[i];a=Math.min(a,p[0]);A=Math.max(A,p[0]);b=Math.min(b,p[1]);B=Math.max(B,p[1])}
+  if(!cnt){a=0;A=w;b=0;B=h}const pad=34,k=Math.min((w-2*pad)/Math.max(A-a,1),(h-2*pad)/Math.max(B-b,1),4);const t={k,tx:w/2-k*(a+A)/2,ty:h/2-k*(b+B)/2};tv=t;if(!anim)view={...t};kick()};
+ const focusSet=()=>{const f=pinned>=0?pinned:hov;if(f<0)return null;const s=new Set([f]);adj[f].forEach(a=>{if(vis(a.j)&&evis({s:f,t:a.j,y:a.y}))s.add(a.j)});return s};
+ const retarget=()=>{const fs=focusSet(),ql=q.toLowerCase();for(let i=0;i<n;i++){const v=vis(i);tr[i]=v?1:0;let a=v?1:0;if(v&&fs&&!fs.has(i))a=.13;if(v&&ql&&!N[i].name.toLowerCase().includes(ql))a=Math.min(a,.13);ta[i]=a}kick()};
+ const kick=()=>{if(!raf)raf=requestAnimationFrame(frame)};
+ let busy=false;const L=(a,b,r)=>{const d=b-a;if(Math.abs(d)<.003*(Math.abs(b)+1)){return b}busy=true;return a+d*r};
+ const frame=()=>{raf=0;busy=false;view.k=L(view.k,tv.k,.2);view.tx=L(view.tx,tv.tx,.2);view.ty=L(view.ty,tv.ty,.2);for(let i=0;i<n;i++){alpha[i]=L(alpha[i],ta[i],.22);rsc[i]=L(rsc[i],tr[i],.2)}render();if(busy)kick()};
+ const cssNow=()=>({cc:IC(),ink:css('--ink'),bg:css('--bg'),mut:css('--mut'),surf:css('--surf')});
+ const render=()=>{if(!ctx)return;const C=cssNow();ctx.clearRect(0,0,w,h);const f=pinned>=0?pinned:hov;const xo=o.xonly&&o.xonly();
+  const nodeCol=i=>o.nodeColor?o.nodeColor(N[i],C.cc,i):C.cc[N[i].inst];
+  for(const e of E){if(!evis(e))continue;const a=Math.min(alpha[e.s],alpha[e.t])*Math.min(rsc[e.s],rsc[e.t]);if(a<.01)continue;const inc=f>=0&&(e.s===f||e.t===f);
+   let col,al;if(o.edgeStyle){const st=o.edgeStyle(e,C);col=st.c;al=st.a}else{col=e.x&&(xo||(o.xInk?o.xInk():true))?C.ink:nodeCol(e.s);al=xo?(e.x?.7:.05):(e.x?.5:.22)}
+   if(inc){al=.9;col=e.x?C.ink:nodeCol(e.s)}
+   const p1=S(e.s),p2=S(e.t);ctx.strokeStyle=hex2rgba(col.startsWith('#')||col.startsWith('rgb')?col:C.ink,Math.min(1,al*(inc?1:a)));ctx.lineWidth=(inc?1.2+Math.min(2.5,Math.sqrt(e.w)*.3):(e.x?1.2:.6))*Math.min(1.6,Math.pow(view.k,.35));ctx.beginPath();ctx.moveTo(p1[0],p1[1]);ctx.lineTo(p2[0],p2[1]);ctx.stroke()}
+  const ql=q.toLowerCase();
+  for(let i=0;i<n;i++){const r=RR(i);if(r<.3||alpha[i]<.02)continue;const p=S(i);if(p[0]<-20||p[0]>w+20||p[1]<-20||p[1]>h+20)continue;const st=o.nodeStyle?o.nodeStyle(N[i],i,C):null;
+   ctx.globalAlpha=alpha[i];ctx.fillStyle=st?st.fill:nodeCol(i);ctx.beginPath();ctx.arc(p[0],p[1],r+(st&&st.grow||0),0,7);ctx.fill();
+   ctx.lineWidth=1;ctx.strokeStyle=C.bg;ctx.stroke();
+   if(st&&st.ring){ctx.lineWidth=st.ringW||1.5;ctx.strokeStyle=C.ink;ctx.stroke()}else if(o.outlineHubs&&N[i].art&&N[i].deg>=15){ctx.lineWidth=1.6;ctx.strokeStyle=C.ink;ctx.stroke()}
+   if(i===f){ctx.globalAlpha=1;ctx.lineWidth=2.5;ctx.strokeStyle=C.ink;ctx.beginPath();ctx.arc(p[0],p[1],r+4,0,7);ctx.stroke()}
+   if(ql&&N[i].name.toLowerCase().includes(ql)&&i!==f){ctx.globalAlpha=1;ctx.lineWidth=2;ctx.strokeStyle=css('--accent');ctx.beginPath();ctx.arc(p[0],p[1],r+3,0,7);ctx.stroke()}
+   ctx.globalAlpha=1}
+  /* labels, collision-free */
+  const boxes=[];ctx.font='600 12px "IBM Plex Sans",system-ui,sans-serif';ctx.textBaseline='middle';
+  const label=(i,strong)=>{const p=S(i),r=RR(i),t=N[i].name,tw=ctx.measureText(t).width;let bx=p[0]+r+5,by=p[1]-1;if(bx+tw>w-4)bx=p[0]-r-5-tw;const bb=[bx-2,by-9,bx+tw+2,by+9];
+   if(bb[0]<0||bb[2]>w||bb[1]<0||bb[3]>h)return false;if(!strong&&boxes.some(b=>!(bb[2]<b[0]||bb[0]>b[2]||bb[3]<b[1]||bb[1]>b[3])))return false;boxes.push(bb);
+   ctx.lineWidth=4;ctx.strokeStyle=hex2rgba(C.bg,.92);ctx.lineJoin='round';ctx.strokeText(t,bx,by);ctx.fillStyle=C.ink;ctx.fillText(t,bx,by);return true};
+  if(f>=0){label(f,true);let c2=0;for(const a of adj[f]){if(c2>=14)break;if(vis(a.j)&&evis({s:f,t:a.j,y:a.y})){if(label(a.j,false))c2++}}}
+  else{let shown=0;const cap=Math.round(4+Math.max(0,view.k-.9)*22);
+   if(ql){for(let i=0;i<n&&shown<10;i++)if(vis(i)&&N[i].name.toLowerCase().includes(ql)&&label(i,true))shown++}
+   for(const i of order){if(shown>=cap)break;if(!vis(i)||alpha[i]<.5)continue;if(label(i,false))shown++}}
+  ctx.textBaseline='alphabetic'};
+ const hit=(mx,my)=>{let b=-1,bd=1e9;for(let i=0;i<n;i++){if(!vis(i)||alpha[i]<.05)continue;const p=S(i),d=Math.hypot(p[0]-mx,p[1]-my),r=Math.max(RR(i)+5,9);if(d<r&&d<bd){bd=d;b=i}}return b};
+ const tipEl=document.getElementById('tip');
+ const showTip=(i,e)=>{if(i<0){tipEl.style.opacity=0;return}const m=N[i],ps=adj[i].filter(a=>evis({s:i,t:a.j,y:a.y})),top=ps.slice(0,3).map(a=>N[a.j].name+' ('+a.w+')').join(', ');
+  tipEl.innerHTML=`<b>${m.name}</b> · ${m.inst}<br>${ps.length} collaborator${ps.length==1?'':'s'} · community C${m.comm+1}${m.art&&m.deg>=15?' · bridge hub':''}<br>${top?'Top partners: '+top+'<br>':''}<i style="opacity:.75">click to pin · see all collaborators</i>`;
+  tipEl.style.opacity=1;const tw=tipEl.offsetWidth,th=tipEl.offsetHeight;let x=e.clientX+16,y=e.clientY+16;if(x+tw>innerWidth-8)x=e.clientX-tw-16;if(y+th>innerHeight-8)y=e.clientY-th-16;tipEl.style.left=x+'px';tipEl.style.top=y+'px'};
+ const panel=o.panel;
+ const renderPanel=()=>{if(!panel)return;if(pinned<0){panel.innerHTML=`<p class="cap" style="margin:0">Hover a dot for a quick card. <b>Click</b> one to pin it and list every collaborator; click a name to hop along the network.</p>`;return}
+  const m=N[pinned],ps=adj[pinned].filter(a=>evis({s:pinned,t:a.j,y:a.y})),xs=ps.filter(a=>a.x).length;
+  panel.innerHTML=`<div class="nvpanel"><div><div style="font-family:Fraunces,Georgia,serif;font-size:20px;font-weight:700;line-height:1.2">${m.name}</div><div style="margin:6px 0">${pill(m.inst)} <span class="cap">community C${m.comm+1}</span></div>
+   <div class="cap" style="margin:0">${ps.length} collaborators (${xs} at other institutes) · ${m.wdeg} joint-paper links · betweenness ${m.bc} · first linked ${m.y}${m.art&&m.deg>=15?' · removing them splits the network':''}</div><button data-clr style="margin-top:8px">Clear pin</button></div>
+   <div class="nvlist">${ps.map(a=>`<button data-j="${a.j}" style="--c:var(--${N[a.j].inst})" title="${a.w} joint-paper links${a.x?' · different institute':''}">${N[a.j].name}${a.x?' ⇄':''} <b>${a.w}</b></button>`).join('')||'<span class="cap">No collaborators yet in this period.</span>'}</div></div>`;
+  panel.querySelectorAll('[data-j]').forEach(b=>b.onclick=()=>pin(+b.dataset.j,true));const cl=panel.querySelector('[data-clr]');if(cl)cl.onclick=()=>pin(-1)};
+ const zoomAt=(f,mx,my)=>{const k=Math.min(14,Math.max(.4,tv.k*f)),r=k/tv.k;tv={k,tx:mx-(mx-tv.tx)*r,ty:my-(my-tv.ty)*r};kick()};
+ const flyTo=i=>{const b=base[i],k=Math.max(tv.k,2.4);tv={k,tx:w/2-b[0]*k,ty:h/2-b[1]*k};kick()};
+ const pin=(i,fly)=>{pinned=i;retarget();renderPanel();if(i>=0&&fly)flyTo(i)};
+ /* toolbar */
+ if(o.tools){const T=o.tools;T.innerHTML='';const mk=(t,fn,cls)=>{const b=document.createElement('button');b.textContent=t;b.className=cls||'';b.onclick=fn;T.appendChild(b);return b};
+  mk('+',()=>zoomAt(1.5,w/2,h/2),'sq').title='Zoom in';mk('−',()=>zoomAt(1/1.5,w/2,h/2),'sq').title='Zoom out';mk('Fit',()=>{fit()},'').title='Reset the view';
+  const lb=document.createElement('label');lb.className='nvspread';lb.innerHTML='Spread out <input type="range" min="1" max="2.6" step=".05" value="'+spread+'">';T.appendChild(lb);lb.querySelector('input').oninput=e=>{spread=+e.target.value;rebase();fit(false);kick()};
+  if(o.chips!==false)INST.forEach(k=>{const b=document.createElement('button');b.className='chipI';b.innerHTML=`<i style="background:var(--${k})"></i>${k}`;b.title='Show or hide '+k;b.onclick=()=>{instOn[k]=!instOn[k];b.classList.toggle('off',!instOn[k]);if(pinned>=0&&!vis(pinned))pinned=-1;retarget();renderPanel();fit()};T.appendChild(b)});
+  const hint=document.createElement('span');hint.className='nvhint';hint.textContent='drag = pan · ctrl/⌘+scroll or double-click = zoom';T.appendChild(hint)}
+ /* pointer events */
+ c.style.touchAction='pan-y';c.tabIndex=0;c.style.cursor='grab';
+ c.addEventListener('pointerdown',e=>{if(e.pointerType==='touch'){drag={moved:99,touch:true};return}const r=c.getBoundingClientRect();drag={x:e.clientX,y:e.clientY,tx:tv.tx,ty:tv.ty,moved:0};c.setPointerCapture(e.pointerId)});
+ c.addEventListener('pointermove',e=>{const r=c.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;mouse=[mx,my];
+  if(drag&&!drag.touch&&e.buttons){const dx=e.clientX-drag.x,dy=e.clientY-drag.y;drag.moved=Math.max(drag.moved,Math.hypot(dx,dy));if(drag.moved>4){tv.tx=view.tx=drag.tx+dx;tv.ty=view.ty=drag.ty+dy;c.style.cursor='grabbing';showTip(-1);render();return}}
+  const b=hit(mx,my);c.style.cursor=b>=0?'pointer':'grab';if(b!==hov){hov=b;retarget()}showTip(b,e)});
+ c.addEventListener('pointerup',e=>{const was=drag;drag=null;c.style.cursor='grab';if(was&&was.moved>4)return;const r=c.getBoundingClientRect(),b=hit(e.clientX-r.left,e.clientY-r.top);if(was&&was.touch){hov=b}
+  if(o.onClick){o.onClick(b,N[b]);return}if(b>=0)pin(b===pinned?-1:b,b!==pinned);else if(pinned>=0)pin(-1)});
+ c.addEventListener('pointerleave',()=>{hov=-1;showTip(-1);retarget()});
+ c.addEventListener('dblclick',e=>{const r=c.getBoundingClientRect();zoomAt(e.shiftKey?1/1.8:1.8,e.clientX-r.left,e.clientY-r.top)});
+ c.addEventListener('wheel',e=>{if(!(e.ctrlKey||e.metaKey))return;e.preventDefault();const r=c.getBoundingClientRect();zoomAt(Math.exp(-e.deltaY*.012),e.clientX-r.left,e.clientY-r.top)},{passive:false});
+ c.addEventListener('keydown',e=>{if(e.key==='Escape')pin(-1);if(e.key==='+'||e.key==='=')zoomAt(1.4,w/2,h/2);if(e.key==='-')zoomAt(1/1.4,w/2,h/2);if(e.key==='0')fit()});
+ const api={refresh:()=>{retarget();renderPanel();fit()},update:()=>{retarget();renderPanel()},redraw:()=>{retarget();kick()},setQuery:s=>{q=s;retarget();if(s.length>2){const m=N.findIndex((x,i)=>vis(i)&&x.name.toLowerCase().includes(s.toLowerCase()));if(m>=0)flyTo(m)}else if(!s)fit()},pin,fit,resize:()=>{resize();fit(false);retarget();render()},get pinned(){return pinned}};
+ resize();retarget();for(let i=0;i<n;i++){alpha[i]=ta[i];rsc[i]=o.grow?0:tr[i]}fit(false);renderPanel();render();kick();
+ let rt;addEventListener('resize',()=>{clearTimeout(rt);rt=setTimeout(api.resize,120)});
+ matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>setTimeout(()=>kick(),60));
+ return api}
+
 /* ---------- hero network ---------- */
 (function(){
- const c=$('#heroC');let st,yr=2026,timer=null;
- const leg=$('#heroLeg');const draw=()=>{
-  const s=setupCanvas(c);const {ctx,w,h}=s;ctx.clearRect(0,0,w,h);const P=n=>[26+n.x*(w-52),18+n.py*(h-36)];const cc=IC();
-  ctx.lineWidth=.6;let ne=0,nn=0;
-  EE.forEach(e=>{if(e.y>yr)return;ne++;const a=NN[e.s],b=NN[e.t],pa=P(a),pb=P(b);ctx.strokeStyle=e.x?hex2rgba(css('--ink'),.5):hex2rgba(cc[a.inst],.28);ctx.lineWidth=e.x?1.2:.6;ctx.beginPath();ctx.moveTo(...pa);ctx.lineTo(...pb);ctx.stroke()});
-  NN.forEach(n=>{if(n.y>yr)return;nn++;const p=P(n);ctx.fillStyle=cc[n.inst];ctx.beginPath();ctx.arc(p[0],p[1],rad(n),0,7);ctx.fill()});
-  const cross=EE.filter(e=>e.y<=yr&&e.x).length;
-  $('#heroCap').innerHTML=`By the end of <b>${yr}</b>: <b>${nn}</b> faculty linked, <b>${fmt(ne)}</b> pairs, of which <b>${cross}</b> cross institutes (dark lines). ${nFac-nn} of ${nFac} faculty have no faculty co-author yet.`;
- };
- leg.innerHTML=INST.map(k=>`<span><i style="background:var(--${k})"></i>${k} (${D.inst_nodes[k]} linked)</span>`).join('')+'<span>Node size = collaborators · dark line = across institutes</span>';
- $('#yr').oninput=e=>{yr=+e.target.value;$('#yrL').textContent=yr;draw()};
- $('#play').onclick=()=>{if(timer){clearInterval(timer);timer=null;$('#play').textContent='▶ Play';return}$('#play').textContent='❚❚ Pause';if(yr>=2026)yr=2015;timer=setInterval(()=>{yr++;$('#yr').value=yr;$('#yrL').textContent=yr;draw();if(yr>=2026){clearInterval(timer);timer=null;$('#play').textContent='▶ Play'}},700)};
- draw();addEventListener('resize',draw);matchMedia('(prefers-color-scheme:dark)').addEventListener('change',()=>setTimeout(()=>{draw();drawNet&&drawNet()},50));
+ let yr=2026,timer=null;
+ const nv=NetView($('#heroC'),{grow:true,spread:1.45,tools:$('#heroTools'),panel:$('#heroPanel'),visible:n=>n.y<=yr,edgeVisible:e=>e.y<=yr});
+ const cap=()=>{let nn=0,ne=0,cross=0;NN.forEach(n=>{if(n.y<=yr)nn++});EE.forEach(e=>{if(e.y<=yr){ne++;if(e.x)cross++}});
+  $('#heroCap').innerHTML=`By the end of <b>${yr}</b>: <b>${nn}</b> faculty linked, <b>${fmt(ne)}</b> pairs, of which <b>${cross}</b> cross institutes (dark lines). ${nFac-nn} of ${nFac} faculty have no faculty co-author yet.`};
+ $('#heroLeg').innerHTML=INST.map(k=>`<span><i style="background:var(--${k})"></i>${k} (${D.inst_nodes[k]} linked)</span>`).join('')+'<span>Dot size = collaborators · dark line = across institutes</span>';
+ const setYr=v=>{yr=v;$('#yr').value=v;$('#yrL').textContent=v;nv.update();cap()};
+ $('#yr').oninput=e=>setYr(+e.target.value);
+ $('#play').onclick=()=>{if(timer){clearInterval(timer);timer=null;$('#play').textContent='▶ Play';return}$('#play').textContent='❚❚ Pause';if(yr>=2026)setYr(2015);timer=setInterval(()=>{setYr(yr+1);if(yr>=2026){clearInterval(timer);timer=null;$('#play').textContent='▶ Play'}},850)};
+ cap();
 })();
 
 /* ---------- main explorer ---------- */
 let drawNet;
 (function(){
- const c=$('#netC');let mode='inst',xonly=false,hov=-1,q='';
- const adj=NN.map(()=>[]);EE.forEach(e=>{adj[e.s].push(e.t);adj[e.t].push(e.s)});
- let sc,P;
- drawNet=()=>{const s=setupCanvas(c);sc=s;const {ctx,w,h}=s;ctx.clearRect(0,0,w,h);P=n=>[26+n.x*(w-52),18+n.py*(h-36)];const cc=IC();
-  const color=n=>mode==='inst'?cc[n.inst]:commColors[n.comm%commColors.length];
-  const hs=new Set(hov>=0?[hov,...adj[hov]]:[]);const ql=q.toLowerCase();
-  EE.forEach(e=>{const a=NN[e.s],b=NN[e.t];let al=xonly?(e.x?.7:.05):.2;if(hov>=0)al=(e.s===hov||e.t===hov)?.9:.04;ctx.strokeStyle=e.x&&(xonly||mode==='inst')?hex2rgba(css('--ink'),Math.min(.85,al+.2)):hex2rgba(color(a),al);ctx.lineWidth=e.x?1.3:.6;ctx.beginPath();ctx.moveTo(...P(a));ctx.lineTo(...P(b));ctx.stroke()});
-  NN.forEach((n,i)=>{const p=P(n);let a=1;if(hov>=0&&!hs.has(i))a=.15;if(ql&&!n.name.toLowerCase().includes(ql))a=Math.min(a,.12);ctx.globalAlpha=a;ctx.fillStyle=color(n);ctx.beginPath();ctx.arc(p[0],p[1],rad(n),0,7);ctx.fill();if(n.art&&n.deg>=15){ctx.lineWidth=1.5;ctx.strokeStyle=css('--ink');ctx.stroke()}ctx.globalAlpha=1;
-   if(i===hov||(ql&&ql.length>2&&n.name.toLowerCase().includes(ql))){ctx.fillStyle=css('--ink');ctx.font='600 12px system-ui';ctx.fillText(n.name,p[0]+8,p[1]-6)}});
-  $('#netLeg').innerHTML=mode==='inst'?INST.map(k=>`<span><i style="background:var(--${k})"></i>${k}</span>`).join('')+'<span>Outlined = cut-vertex hub</span>':D.comm.info.slice(0,12).map(i=>`<span><i style="background:${commColors[i.id%12]}"></i>C${i.id+1} (${i.n})</span>`).join('')};
- c.addEventListener('mousemove',e=>{const r=c.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;let b=-1,bd=100;NN.forEach((n,i)=>{const p=P(n),d=Math.hypot(p[0]-mx,p[1]-my);if(d<Math.max(rad(n)+4,10)&&d<bd){bd=d;b=i}});if(b!==hov){hov=b;drawNet();const n=NN[b];$('#netInfo').innerHTML=b<0?'Hover a node.':`<b>${n.name}</b> · ${n.inst} · ${n.deg} collaborators (${n.wdeg} joint-paper links) · betweenness ${n.bc} · community C${n.comm+1} · first linked ${n.y}`}});
- c.addEventListener('mouseleave',()=>{hov=-1;drawNet()});
+ let mode='inst';
+ const nv=NetView($('#netC'),{spread:1.55,tools:$('#netTools'),panel:$('#netPanel'),outlineHubs:true,xonly:()=>$('#xOnly').checked,xInk:()=>mode==='inst',nodeColor:(n,cc)=>mode==='inst'?cc[n.inst]:commColors[n.comm%commColors.length]});
+ const leg=()=>{$('#netLeg').innerHTML=mode==='inst'?INST.map(k=>`<span><i style="background:var(--${k})"></i>${k}</span>`).join('')+'<span>Outlined = cut-vertex hub</span>':D.comm.info.slice(0,12).map(i=>`<span><i style="background:${commColors[i.id%12]}"></i>C${i.id+1} (${i.n})</span>`).join('')};
+ drawNet=()=>{nv.redraw();leg()};
  $('#cInst').onclick=()=>{mode='inst';$('#cInst').classList.add('on');$('#cComm').classList.remove('on');drawNet()};
  $('#cComm').onclick=()=>{mode='comm';$('#cComm').classList.add('on');$('#cInst').classList.remove('on');drawNet()};
- $('#xOnly').onchange=e=>{xonly=e.target.checked;drawNet()};$('#srch').oninput=e=>{q=e.target.value;drawNet()};
- drawNet();addEventListener('resize',drawNet);
+ $('#xOnly').onchange=()=>drawNet();$('#srch').oninput=e=>nv.setQuery(e.target.value);
+ leg();
  // pair matrix
  const pairs={};EE.forEach(e=>{const a=NN[e.s].inst,b=NN[e.t].inst,k=[a,b].sort((x,y)=>INST.indexOf(x)-INST.indexOf(y)).join('–');pairs[k]=(pairs[k]||0)+1});
  hbars('#chPairs',Object.entries(pairs).sort((a,b)=>b[1]-a[1]).map(([k,v])=>({label:k,value:v,color:k.split('–')[0]===k.split('–')[1]?css('--'+k.split('–')[0]):css('--ink2'),tip:`<b>${k}</b><br>${v} pairs`})),{lw:110,rowH:25});
@@ -406,24 +497,23 @@ let drawNet;
  const nodeShare={};INST.forEach(k=>nodeShare[k]=D.inst_nodes[k]/nConn);
  cols('#chHome',{cats:INST,series:[{name:'Reached faculty from own institute',color:INST.map(k=>col[k]),vals:INST.map(k=>D.stay_home[k]*100)},{name:'Institute share of network',color:INST.map(k=>col[k]),vals:INST.map(k=>nodeShare[k]*100),op:.3}],max:100,yfmt:v=>v+'%',tfmt:v=>v.toFixed(0)+'%'});
  /* live simulator */
- const c=$('#simC');let state=new Int8Array(NN.length),infT=new Int16Array(NN.length),step=0,timer=null,hov=-1;
- const adj=NN.map(()=>[]);EE.forEach(e=>{adj[e.s].push(e.t);adj[e.t].push(e.s)});let P;
+ let state=new Int8Array(NN.length),step=0,timer=null;
+ const adj=NN.map(()=>[]);EE.forEach(e=>{adj[e.s].push(e.t);adj[e.t].push(e.s)});
  const stat=()=>{const n=state.reduce((a,b)=>a+(b?1:0),0);const by=Object.fromEntries(INST.map(k=>[k,0]));NN.forEach((x,i)=>{if(state[i])by[x.inst]++});$('#sStat').innerHTML=`<div><b>${step}</b><span>step</span></div><div><b>${n}</b><span>reached of ${NN.length}</span></div>`+INST.map(k=>`<div><b style="color:var(--${k})">${by[k]}</b><span>${k}</span></div>`).join('')};
- const draw=()=>{const s=setupCanvas(c);const {ctx,w,h}=s;ctx.clearRect(0,0,w,h);P=n=>[26+n.x*(w-52),18+n.py*(h-36)];const cc=IC();
-  ctx.lineWidth=.5;EE.forEach(e=>{ctx.strokeStyle=hex2rgba(css('--ink'),state[e.s]&&state[e.t]?.28:.08);ctx.beginPath();ctx.moveTo(...P(NN[e.s]));ctx.lineTo(...P(NN[e.t]));ctx.stroke()});
-  NN.forEach((n,i)=>{const p=P(n);ctx.beginPath();ctx.arc(p[0],p[1],rad(n)+(state[i]===2?2:0),0,7);ctx.fillStyle=state[i]?cc[n.inst]:hex2rgba(css('--mut'),.35);ctx.fill();if(state[i]){ctx.lineWidth=state[i]===2?3:1;ctx.strokeStyle=css('--ink');ctx.stroke()}});
-  if(hov>=0){const n=NN[hov],p=P(n);ctx.fillStyle=css('--ink');ctx.font='600 12px system-ui';ctx.fillText(n.name+' · '+n.inst+' · k='+n.deg,p[0]+8,p[1]-8)}stat()};
+ const nv=NetView($('#simC'),{spread:1.5,chips:false,tools:$('#simTools'),
+  nodeStyle:(n,i,C)=>({fill:state[i]?C.cc[n.inst]:hex2rgba(C.mut,.4),ring:state[i]>0,ringW:state[i]===2?3:1,grow:state[i]===2?3:0}),
+  edgeStyle:(e,C)=>({c:C.ink,a:state[e.s]&&state[e.t]?.45:.1}),
+  onClick:(b)=>{if(b>=0)seed(b)}});
+ const draw=()=>{nv.redraw();stat()};
  const seed=i=>{state=new Int8Array(NN.length);state[i]=2;step=0;stop();draw()};
  const stepF=()=>{const T=+$('#tR').value;const nw=[];for(let i=0;i<NN.length;i++)if(state[i]===2)adj[i].forEach(j=>{if(!state[j]&&Math.random()<T&&!nw.includes(j))nw.push(j)});for(let i=0;i<NN.length;i++)if(state[i]===2)state[i]=1;nw.forEach(j=>state[j]=2);step++;draw();return nw.length};
  const stop=()=>{if(timer){clearInterval(timer);timer=null;$('#sPlay').textContent='▶ Play'}};
- c.addEventListener('click',e=>{const r=c.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;let b=-1,bd=1e9;NN.forEach((n,i)=>{const p=P(n),d=Math.hypot(p[0]-mx,p[1]-my);if(d<bd){bd=d;b=i}});if(bd<20)seed(b)});
- c.addEventListener('mousemove',e=>{const r=c.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;let b=-1,bd=14;NN.forEach((n,i)=>{const p=P(n),d=Math.hypot(p[0]-mx,p[1]-my);if(d<bd){bd=d;b=i}});if(b!==hov){hov=b;draw()}});
  $('#sStep').onclick=()=>stepF();
  $('#sPlay').onclick=()=>{if(timer){stop();return}$('#sPlay').textContent='❚❚ Pause';timer=setInterval(()=>{if(!stepF())stop()},450)};
  $('#sReset').onclick=()=>{state=new Int8Array(NN.length);step=0;stop();draw()};
  $('#sHub').onclick=()=>{let b=0;NN.forEach((n,i)=>{if(n.deg>NN[b].deg)b=i});seed(b)};
  $('#tR').oninput=e=>$('#tL').textContent=(+e.target.value).toFixed(2);
- draw();addEventListener('resize',draw);
+ draw();
 })();
 
 /* ---------- citations ---------- */
@@ -457,4 +547,9 @@ let drawNet;
  $('#tkLP').innerHTML=`Only ${pct(L.new_with_cn)} of new ties closed a triangle, but ${pct(L.new_same_inst)} stayed within one institute. Collaboration here is driven by <b>where you work</b> far more than by friends-of-friends.`;
  table('#missTable',['Pair','Inst.','Shared collab.','AA'],D.missed.map(m=>[`${m.a} ↔ ${m.b}`,pill(m.inst),m.cn,m.aa]),[2,3]);
 })();
+
+/* charts read theme colours once; re-render everything when the theme flips */
+(function(){let tm;const re=()=>{clearTimeout(tm);tm=setTimeout(()=>location.reload(),150)};
+ matchMedia('(prefers-color-scheme:dark)').addEventListener('change',re);
+ new MutationObserver(re).observe(document.documentElement,{attributes:true,attributeFilter:['data-theme']})})();
 </script></body></html>
